@@ -1,0 +1,2 @@
+Acurácia (treinamento): 0.8690
+Acurácia (validação): 0.8232
