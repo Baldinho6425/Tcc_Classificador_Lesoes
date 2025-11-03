@@ -108,7 +108,7 @@ Caso não haja GPU, o treinamento é executado automaticamente na CPU.
 ## 💡 Créditos
 
 Desenvolvido por **Eduardo Giehl e Eduardo Tessaro**  
-Projeto acadêmico de classificação de lesões de pele utilizando **Inteligência Artificial** e **Visão Computacional**.
+Projeto acadêmico de classificação de lesões de pele utilizando **Inteligência Artificial**.
 
 ---
 
