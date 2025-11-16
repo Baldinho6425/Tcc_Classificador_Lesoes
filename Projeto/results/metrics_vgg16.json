@@ -1,0 +1,26 @@
+{
+    "model": "vgg16",
+    "accuracy": 0.7485,
+    "precision_weighted": 0.7099291334897533,
+    "recall_weighted": 0.7485,
+    "f1_weighted": 0.7166523189765323,
+    "specificity_macro": 0.9175686360966643,
+    "classes": [
+        "actinic_keratoses",
+        "basal_cell_carcinoma",
+        "benign_keratosis",
+        "dermatofibroma",
+        "melanocytic_nevi",
+        "melanoma",
+        "vascular_lesions"
+    ],
+    "specificity_per_class": [
+        0.9901808785529715,
+        0.9783983140147524,
+        0.9623806850084222,
+        0.9969650986342944,
+        0.5280728376327769,
+        0.968503937007874,
+        0.9984787018255578
+    ]
+}
