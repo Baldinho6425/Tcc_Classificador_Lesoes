@@ -1,0 +1,54 @@
+[
+    {
+        "model": "vgg16",
+        "accuracy": 0.75,
+        "precision_weighted": 0.7121760818302347,
+        "recall_weighted": 0.75,
+        "f1_weighted": 0.7165854068665647,
+        "specificity_macro": 0.9177518736487273,
+        "classes": [
+            "actinic_keratoses",
+            "basal_cell_carcinoma",
+            "benign_keratosis",
+            "dermatofibroma",
+            "melanocytic_nevi",
+            "melanoma",
+            "vascular_lesions"
+        ],
+        "specificity_per_class": [
+            0.9958656330749354,
+            0.9889357218124342,
+            0.9477821448624368,
+            0.9989883662114315,
+            0.5295902883156297,
+            0.9651293588301463,
+            0.9979716024340771
+        ]
+    },
+    {
+        "model": "mobilenetv2",
+        "accuracy": 0.7685,
+        "precision_weighted": 0.7636659978321289,
+        "recall_weighted": 0.7685,
+        "f1_weighted": 0.754175350749008,
+        "specificity_macro": 0.9379939816551304,
+        "classes": [
+            "actinic_keratoses",
+            "basal_cell_carcinoma",
+            "benign_keratosis",
+            "dermatofibroma",
+            "melanocytic_nevi",
+            "melanoma",
+            "vascular_lesions"
+        ],
+        "specificity_per_class": [
+            0.9943152454780362,
+            0.987881981032666,
+            0.9062324536777091,
+            1.0,
+            0.7207890743550834,
+            0.9623172103487064,
+            0.994421906693712
+        ]
+    }
+]
