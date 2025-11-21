@@ -294,7 +294,7 @@ def evaluate_and_save_metrics(
 ):
     """
     Faz predições no conjunto de validação, calcula métricas globais,
-    gera e salva a matriz de confusão e retorna um dicionário de métricas.
+    gera e salva a matriz de confusão (normalizada em %) e retorna um dicionário de métricas.
     """
 
     os.makedirs(output_dir_results, exist_ok=True)
@@ -314,30 +314,54 @@ def evaluate_and_save_metrics(
     idx_to_class = {v: k for k, v in class_indices.items()}
     labels = [idx_to_class[i] for i in range(len(idx_to_class))]
 
-    # Métricas
+    # Métricas globais
     acc = accuracy_score(y_true, y_pred)
     prec = precision_score(y_true, y_pred, average="weighted", zero_division=0)
     rec = recall_score(y_true, y_pred, average="weighted", zero_division=0)
     f1 = f1_score(y_true, y_pred, average="weighted", zero_division=0)
 
-    # Matriz de confusão
-    cm = confusion_matrix(y_true, y_pred)
-    macro_spec, spec_per_class = compute_specificity_multiclass(cm)
+    # Matriz de confusão bruta (para especificidade)
+    cm_raw = confusion_matrix(y_true, y_pred)
+    macro_spec, spec_per_class = compute_specificity_multiclass(cm_raw)
 
-    # Salva matriz de confusão como figura
+    # Matriz de confusão normalizada por linha (percentual)
+    cm_norm = confusion_matrix(y_true, y_pred, normalize="true")
+
+    # Salva matriz de confusão normalizada como figura
     plt.figure(figsize=(8, 6))
-    plt.imshow(cm, interpolation="nearest")
-    plt.title(f"Matriz de Confusão - {model_name}")
-    plt.colorbar()
+    im = plt.imshow(cm_norm, interpolation="nearest", cmap="Blues", vmin=0, vmax=1)
+    plt.title(f"Matriz de Confusão Normalizada (%) - {model_name}")
+    plt.colorbar(im)
+
     tick_marks = np.arange(len(labels))
     plt.xticks(tick_marks, labels, rotation=45, ha="right")
     plt.yticks(tick_marks, labels)
 
-    plt.ylabel("Verdadeiro")
-    plt.xlabel("Predito")
+    # Escreve o valor em cada célula, em porcentagem
+    for i in range(cm_norm.shape[0]):
+        for j in range(cm_norm.shape[1]):
+            value = cm_norm[i, j] * 100.0
+            text_color = "white" if cm_norm[i, j] > 0.5 else "black"
+            plt.text(
+                j,
+                i,
+                f"{value:.1f}%",
+                ha="center",
+                va="center",
+                color=text_color,
+                fontsize=8
+            )
+
+    plt.ylabel("Classe verdadeira")
+    plt.xlabel("Classe predita")
     plt.tight_layout()
-    cm_path = os.path.join(output_dir_results, "confusion_matrices", f"cm_{model_name}.png")
-    plt.savefig(cm_path)
+
+    cm_path = os.path.join(
+        output_dir_results,
+        "confusion_matrices",
+        f"cm_{model_name}_percent.png"
+    )
+    plt.savefig(cm_path, dpi=300)
     plt.close()
 
     # Salva métricas em JSON (pode virar tabela depois)
@@ -357,7 +381,7 @@ def evaluate_and_save_metrics(
         json.dump(metrics_dict, f, indent=4, ensure_ascii=False)
 
     print(f"\n📊 Métricas salvas em: {metrics_path}")
-    print(f"🧩 Matriz de confusão salva em: {cm_path}")
+    print(f"🧩 Matriz de confusão normalizada salva em: {cm_path}")
 
     return metrics_dict
 
