@@ -1,6 +1,8 @@
 # src/training/train.py
 import os
 import json
+import random
+import argparse
 import numpy as np
 import tensorflow as tf
 import matplotlib.pyplot as plt
@@ -11,28 +13,41 @@ from tensorflow.keras.applications.mobilenet_v2 import preprocess_input as mobil
 from tensorflow.keras.applications.efficientnet import preprocess_input as eff_preprocess
 
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Dense, GlobalAveragePooling2D
+from tensorflow.keras.layers import Dense, Dropout, GlobalAveragePooling2D
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import ModelCheckpoint
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 
 from sklearn.metrics import (
     confusion_matrix,
     accuracy_score,
     precision_score,
     recall_score,
-    f1_score
+    f1_score,
+    classification_report,
 )
+from sklearn.utils.class_weight import compute_class_weight
+
+SEED = 42
 
 
 # ============================================================
-# 1) CONFIGURAÇÃO DE HARDWARE (GPU + Mixed Precision)
+# 1) SEED DE REPRODUTIBILIDADE
+# ============================================================
+
+def configurar_seed():
+    random.seed(SEED)
+    np.random.seed(SEED)
+    tf.random.set_seed(SEED)
+    os.environ["PYTHONHASHSEED"] = str(SEED)
+    print(f"🔒 Seed fixada: {SEED}")
+
+
+# ============================================================
+# 2) CONFIGURAÇÃO DE HARDWARE (GPU + Mixed Precision)
 # ============================================================
 
 def configurar_hardware():
-    """
-    Configura GPU e Mixed Precision (se disponível).
-    """
     gpus = tf.config.list_physical_devices('GPU')
     if gpus:
         try:
@@ -40,11 +55,10 @@ def configurar_hardware():
                 tf.config.experimental.set_memory_growth(gpu, True)
             print(f"✅ {len(gpus)} GPU(s) detectada(s): {[gpu.name for gpu in gpus]}")
 
-            # Habilita Mixed Precision apenas se GPU suportar
             try:
                 from tensorflow.keras import mixed_precision
                 mixed_precision.set_global_policy("mixed_float16")
-                print("⚙️  Treinamento configurado para Mixed Precision (float16).")
+                print("⚙️  Mixed Precision (float16) habilitado.")
             except Exception as e:
                 print("⚠️  Não foi possível habilitar Mixed Precision:", e)
 
@@ -55,13 +69,10 @@ def configurar_hardware():
 
 
 # ============================================================
-# 2) GERADORES DE DADOS COM DATA AUGMENTATION
+# 3) GERADORES DE DADOS COM DATA AUGMENTATION
 # ============================================================
 
 def get_preprocess_function(model_name: str):
-    """
-    Retorna a função de pré-processamento adequada para cada arquitetura.
-    """
     model_name = model_name.lower()
     if model_name == "vgg16":
         return vgg_preprocess
@@ -70,7 +81,7 @@ def get_preprocess_function(model_name: str):
     elif model_name == "efficientnetb0":
         return eff_preprocess
     else:
-        raise ValueError(f"Modelo não suportado para preprocessamento: {model_name}")
+        raise ValueError(f"Modelo não suportado: {model_name}")
 
 
 def create_data_generators(
@@ -78,19 +89,18 @@ def create_data_generators(
     data_dir: str = "data/processed",
     img_size=(224, 224),
     batch_size: int = 32,
-    val_split: float = 0.2
 ):
     """
-    Cria os geradores de dados para treino e validação, com data augmentation.
-    Usa validation_split para separar 80%/20% (treino/validação).
-    """
+    Espera a estrutura:
+        data_dir/train/<classe>/
+        data_dir/val/<classe>/
 
+    Gerada pelo script organizar_ham10000.py (divisão 80/20 por lesion_id).
+    """
     preprocess_fn = get_preprocess_function(model_name)
 
-    # Data augmentation mais rica, como discutido com o orientador
     train_datagen = ImageDataGenerator(
         preprocessing_function=preprocess_fn,
-        validation_split=val_split,
         rotation_range=20,
         width_shift_range=0.1,
         height_shift_range=0.1,
@@ -100,42 +110,62 @@ def create_data_generators(
         fill_mode="nearest"
     )
 
-    # Para validação não precisamos de augmentation, só do preprocess
-    val_datagen = ImageDataGenerator(
-        preprocessing_function=preprocess_fn,
-        validation_split=val_split
-    )
+    eval_datagen = ImageDataGenerator(preprocessing_function=preprocess_fn)
 
     train_generator = train_datagen.flow_from_directory(
-        data_dir,
+        os.path.join(data_dir, "train"),
         target_size=img_size,
         batch_size=batch_size,
         class_mode="categorical",
-        subset="training",
-        shuffle=True
+        shuffle=True,
+        seed=SEED
     )
 
-    val_generator = val_datagen.flow_from_directory(
-        data_dir,
+    val_generator = eval_datagen.flow_from_directory(
+        os.path.join(data_dir, "val"),
         target_size=img_size,
         batch_size=batch_size,
         class_mode="categorical",
-        subset="validation",
-        shuffle=False  # importante para alinhar classes com as predições
+        shuffle=False
     )
 
     return train_generator, val_generator
 
 
 # ============================================================
-# 3) CONSTRUÇÃO DO MODELO (VGG16, MobileNetV2, EfficientNetB0)
+# 4) PESOS POR CLASSE (compensa desbalanceamento do HAM10000)
 # ============================================================
 
-def build_model(model_name: str, input_shape=(224, 224, 3), num_classes: int = 7,
-                train_base: bool = False, hidden_units: int = 256):
-    """
-    Constrói e retorna (model, base_model) para a arquitetura desejada.
-    """
+def calcular_class_weights(train_generator) -> dict:
+    classes = train_generator.classes
+    class_labels = np.unique(classes)
+    weights = compute_class_weight(
+        class_weight="balanced",
+        classes=class_labels,
+        y=classes
+    )
+    class_weight_dict = dict(zip(class_labels.tolist(), weights.tolist()))
+
+    idx_to_class = {v: k for k, v in train_generator.class_indices.items()}
+    print("\n⚖️  Pesos por classe (compensação de desbalanceamento):")
+    for idx, weight in class_weight_dict.items():
+        print(f"   {idx_to_class[idx]}: {weight:.4f}")
+
+    return class_weight_dict
+
+
+# ============================================================
+# 5) CONSTRUÇÃO DO MODELO
+# ============================================================
+
+def build_model(
+    model_name: str,
+    input_shape=(224, 224, 3),
+    num_classes: int = 7,
+    train_base: bool = False,
+    hidden_units: int = 256,
+    dropout_rate: float = 0.5
+):
     model_name = model_name.lower()
 
     if model_name == "vgg16":
@@ -147,15 +177,15 @@ def build_model(model_name: str, input_shape=(224, 224, 3), num_classes: int = 7
     else:
         raise ValueError(f"Arquitetura não suportada: {model_name}")
 
-    base_model.trainable = train_base  # False para treino baseline; True para fine-tuning
+    base_model.trainable = train_base
 
     x = base_model.output
     x = GlobalAveragePooling2D(name="global_avg_pool")(x)
 
-    if hidden_units is not None and hidden_units > 0:
+    if hidden_units and hidden_units > 0:
         x = Dense(hidden_units, activation="relu", name="dense_hidden")(x)
+        x = Dropout(dropout_rate, name="dropout")(x)
 
-    # Camada de saída com Softmax (probabilidades por classe)
     predictions = Dense(num_classes, activation="softmax", dtype="float32", name="predictions")(x)
 
     model = Model(inputs=base_model.input, outputs=predictions, name=f"{model_name}_classifier")
@@ -164,7 +194,7 @@ def build_model(model_name: str, input_shape=(224, 224, 3), num_classes: int = 7
 
 
 # ============================================================
-# 4) TREINAMENTO (BASELINE + OPCIONAL FINE-TUNING)
+# 6) TREINAMENTO (BASELINE + OPCIONAL FINE-TUNING)
 # ============================================================
 
 def train_model(
@@ -177,18 +207,11 @@ def train_model(
     epochs_finetune: int = 0,
     lr_base: float = 1e-4,
     lr_finetune: float = 1e-5,
-    output_dir_models: str = "models"
+    output_dir_models: str = "models",
+    class_weight: dict = None
 ):
-    """
-    Treina o modelo em duas fases:
-    - Fase 1: Treino da "cabeça" com o backbone congelado
-    - Fase 2 (opcional): Fine-tuning com o backbone descongelado
-    Retorna (history_base, history_finetune).
-    """
-
     os.makedirs(output_dir_models, exist_ok=True)
 
-    # Métricas incluídas já na compilação
     metrics = [
         "accuracy",
         tf.keras.metrics.Precision(name="precision"),
@@ -196,94 +219,114 @@ def train_model(
     ]
 
     # --------------------------------------------------------
-    # Fase 1 - Treino da cabeça
+    # Fase 1 — Treino da cabeça (backbone congelado)
     # --------------------------------------------------------
     base_model.trainable = False
-    optimizer = Adam(learning_rate=lr_base)
     model.compile(
-        optimizer=optimizer,
+        optimizer=Adam(learning_rate=lr_base),
         loss="categorical_crossentropy",
         metrics=metrics
     )
 
     checkpoint_path = os.path.join(output_dir_models, f"{model_name}_best_baseline.h5")
-    checkpoint = ModelCheckpoint(
-        checkpoint_path,
-        monitor="val_accuracy",
-        save_best_only=True,
-        mode="max",
-        verbose=1
-    )
+
+    callbacks_baseline = [
+        ModelCheckpoint(
+            checkpoint_path,
+            monitor="val_accuracy",
+            save_best_only=True,
+            mode="max",
+            verbose=1
+        ),
+        EarlyStopping(
+            monitor="val_accuracy",
+            patience=5,
+            restore_best_weights=True,
+            verbose=1
+        ),
+        ReduceLROnPlateau(
+            monitor="val_loss",
+            factor=0.5,
+            patience=3,
+            min_lr=1e-7,
+            verbose=1
+        ),
+    ]
 
     print(f"\n🚀 Iniciando treinamento BASELINE ({model_name})...")
     history_base = model.fit(
         train_data,
         validation_data=val_data,
         epochs=epochs_base,
-        callbacks=[checkpoint]
+        callbacks=callbacks_baseline,
+        class_weight=class_weight
     )
 
     history_finetune = None
 
     # --------------------------------------------------------
-    # Fase 2 - Fine-tuning (apenas se epochs_finetune > 0)
+    # Fase 2 — Fine-tuning (backbone descongelado)
     # --------------------------------------------------------
     if epochs_finetune > 0:
         print(f"\n🔓 Iniciando FINE-TUNING ({model_name})...")
-        base_model.trainable = True  # descongela backbone inteiro
-
-        # Normalmente, congelar algumas camadas iniciais pode ser interessante,
-        # mas a estratégia recomendada foi simplificar a lógica.
-        optimizer_ft = Adam(learning_rate=lr_finetune)
+        base_model.trainable = True
 
         model.compile(
-            optimizer=optimizer_ft,
+            optimizer=Adam(learning_rate=lr_finetune),
             loss="categorical_crossentropy",
             metrics=metrics
         )
 
         checkpoint_path_ft = os.path.join(output_dir_models, f"{model_name}_best_finetune.h5")
-        checkpoint_ft = ModelCheckpoint(
-            checkpoint_path_ft,
-            monitor="val_accuracy",
-            save_best_only=True,
-            mode="max",
-            verbose=1
-        )
+
+        callbacks_finetune = [
+            ModelCheckpoint(
+                checkpoint_path_ft,
+                monitor="val_accuracy",
+                save_best_only=True,
+                mode="max",
+                verbose=1
+            ),
+            EarlyStopping(
+                monitor="val_accuracy",
+                patience=5,
+                restore_best_weights=True,
+                verbose=1
+            ),
+            ReduceLROnPlateau(
+                monitor="val_loss",
+                factor=0.5,
+                patience=3,
+                min_lr=1e-7,
+                verbose=1
+            ),
+        ]
 
         history_finetune = model.fit(
             train_data,
             validation_data=val_data,
             epochs=epochs_finetune,
-            callbacks=[checkpoint_ft]
+            callbacks=callbacks_finetune,
+            class_weight=class_weight
         )
 
     return history_base, history_finetune
 
 
 # ============================================================
-# 5) CÁLCULO DAS MÉTRICAS E MATRIZ DE CONFUSÃO
+# 7) MÉTRICAS E MATRIZ DE CONFUSÃO
 # ============================================================
 
 def compute_specificity_multiclass(cm: np.ndarray):
-    """
-    Calcula a especificidade macro a partir da matriz de confusão.
-    """
-    num_classes = cm.shape[0]
     specificities = []
-
-    for i in range(num_classes):
+    for i in range(cm.shape[0]):
         tp = cm[i, i]
         fn = np.sum(cm[i, :]) - tp
         fp = np.sum(cm[:, i]) - tp
         tn = np.sum(cm) - (tp + fn + fp)
-
-        denom = (tn + fp)
-        spec = tn / denom if denom > 0 else 0.0
-        specificities.append(spec)
-
-    macro_spec = np.mean(specificities)
-    return macro_spec, specificities
+        denom = tn + fp
+        specificities.append(tn / denom if denom > 0 else 0.0)
+    return np.mean(specificities), specificities
 
 
 def evaluate_and_save_metrics(
@@ -292,79 +335,55 @@ def evaluate_and_save_metrics(
     model_name: str,
     output_dir_results: str = "results"
 ):
-    """
-    Faz predições no conjunto de validação, calcula métricas globais,
-    gera e salva a matriz de confusão (normalizada em %) e retorna um dicionário de métricas.
-    """
-
     os.makedirs(output_dir_results, exist_ok=True)
     os.makedirs(os.path.join(output_dir_results, "confusion_matrices"), exist_ok=True)
 
-    # Número de amostras
-    n_samples = val_data.samples
-    steps = int(np.ceil(n_samples / val_data.batch_size))
-
-    # Predições
-    y_prob = model.predict(val_data, steps=steps)
-    y_pred = np.argmax(y_prob, axis=1)
+    y_prob = model.predict(val_data)
+    y_pred = np.argmax(y_prob, axis=1)[:val_data.samples]
     y_true = val_data.classes
 
-    # Classes (nomes)
-    class_indices = val_data.class_indices
-    idx_to_class = {v: k for k, v in class_indices.items()}
+    idx_to_class = {v: k for k, v in val_data.class_indices.items()}
     labels = [idx_to_class[i] for i in range(len(idx_to_class))]
 
-    # Métricas globais
     acc = accuracy_score(y_true, y_pred)
     prec = precision_score(y_true, y_pred, average="weighted", zero_division=0)
     rec = recall_score(y_true, y_pred, average="weighted", zero_division=0)
     f1 = f1_score(y_true, y_pred, average="weighted", zero_division=0)
 
-    # Matriz de confusão bruta (para especificidade)
+    report_dict = classification_report(
+        y_true, y_pred, target_names=labels, output_dict=True, zero_division=0
+    )
+    print("\n📋 Relatório por classe:")
+    print(classification_report(y_true, y_pred, target_names=labels, zero_division=0))
+
     cm_raw = confusion_matrix(y_true, y_pred)
     macro_spec, spec_per_class = compute_specificity_multiclass(cm_raw)
 
-    # Matriz de confusão normalizada por linha (percentual)
     cm_norm = confusion_matrix(y_true, y_pred, normalize="true")
 
-    # Salva matriz de confusão normalizada como figura
     plt.figure(figsize=(8, 6))
     im = plt.imshow(cm_norm, interpolation="nearest", cmap="Blues", vmin=0, vmax=1)
     plt.title(f"Matriz de Confusão Normalizada (%) - {model_name}")
     plt.colorbar(im)
-
     tick_marks = np.arange(len(labels))
     plt.xticks(tick_marks, labels, rotation=45, ha="right")
     plt.yticks(tick_marks, labels)
-
-    # Escreve o valor em cada célula, em porcentagem
     for i in range(cm_norm.shape[0]):
         for j in range(cm_norm.shape[1]):
             value = cm_norm[i, j] * 100.0
             text_color = "white" if cm_norm[i, j] > 0.5 else "black"
-            plt.text(
-                j,
-                i,
-                f"{value:.1f}%",
-                ha="center",
-                va="center",
-                color=text_color,
-                fontsize=8
-            )
-
+            plt.text(j, i, f"{value:.1f}%", ha="center", va="center",
+                     color=text_color, fontsize=8)
     plt.ylabel("Classe verdadeira")
     plt.xlabel("Classe predita")
     plt.tight_layout()
 
     cm_path = os.path.join(
-        output_dir_results,
-        "confusion_matrices",
-        f"cm_{model_name}_percent.png"
+        output_dir_results, "confusion_matrices", f"cm_{model_name}_percent.png"
     )
     plt.savefig(cm_path, dpi=300)
     plt.close()
 
-    # Salva métricas em JSON (pode virar tabela depois)
     metrics_dict = {
         "model": model_name,
         "accuracy": float(acc),
@@ -373,21 +392,22 @@ def evaluate_and_save_metrics(
         "f1_weighted": float(f1),
         "specificity_macro": float(macro_spec),
         "classes": labels,
-        "specificity_per_class": [float(v) for v in spec_per_class]
+        "specificity_per_class": [float(v) for v in spec_per_class],
+        "classification_report": report_dict,
     }
 
     metrics_path = os.path.join(output_dir_results, f"metrics_{model_name}.json")
-    with open(metrics_path, "w") as f:
+    with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics_dict, f, indent=4, ensure_ascii=False)
 
-    print(f"\n📊 Métricas salvas em: {metrics_path}")
-    print(f"🧩 Matriz de confusão normalizada salva em: {cm_path}")
+    print(f"\n📊 Acurácia: {acc:.4f} | F1: {f1:.4f} | Especificidade: {macro_spec:.4f}")
+    print(f"💾 Métricas salvas em: {metrics_path}")
 
     return metrics_dict
 
 
 # ============================================================
-# 6) PLOT DOS GRÁFICOS DE TREINAMENTO
+# 8) GRÁFICOS DE TREINAMENTO
 # ============================================================
 
 def plot_training_history(
@@ -396,21 +416,13 @@ def plot_training_history(
     model_name: str,
     output_dir_results: str = "results"
 ):
-    """
-    Gera gráficos de acurácia e loss combinando treino e fine-tuning.
-    Marca a transição entre as fases (se houver fine-tuning).
-    """
-
-    os.makedirs(output_dir_results, exist_ok=True)
     os.makedirs(os.path.join(output_dir_results, "plots"), exist_ok=True)
 
-    # Combina históricos
     acc = history_base.history["accuracy"]
     val_acc = history_base.history["val_accuracy"]
     loss = history_base.history["loss"]
     val_loss = history_base.history["val_loss"]
-
-    ft_start_epoch = len(acc)  # início do fine-tuning na numeração global
+    ft_start_epoch = len(acc)
 
     if history_finetune is not None:
         acc += history_finetune.history["accuracy"]
@@ -420,62 +432,98 @@ def plot_training_history(
 
     epochs = range(1, len(acc) + 1)
 
-    # Gráfico de acurácia
     plt.figure(figsize=(10, 5))
     plt.plot(epochs, acc, label="Acurácia treino")
     plt.plot(epochs, val_acc, label="Acurácia validação")
-
     if history_finetune is not None:
         plt.axvline(x=ft_start_epoch, color="gray", linestyle="--", label="Início fine-tuning")
-
     plt.title(f"Acurácia durante o treinamento - {model_name}")
     plt.xlabel("Épocas")
     plt.ylabel("Acurácia")
     plt.legend()
     plt.grid(True)
-
     acc_path = os.path.join(output_dir_results, "plots", f"accuracy_{model_name}.png")
     plt.savefig(acc_path)
     plt.close()
 
-    # Gráfico de loss
     plt.figure(figsize=(10, 5))
     plt.plot(epochs, loss, label="Loss treino")
     plt.plot(epochs, val_loss, label="Loss validação")
-
     if history_finetune is not None:
         plt.axvline(x=ft_start_epoch, color="gray", linestyle="--", label="Início fine-tuning")
-
     plt.title(f"Loss durante o treinamento - {model_name}")
     plt.xlabel("Épocas")
     plt.ylabel("Loss")
     plt.legend()
     plt.grid(True)
-
     loss_path = os.path.join(output_dir_results, "plots", f"loss_{model_name}.png")
     plt.savefig(loss_path)
     plt.close()
 
-    print(f"📈 Gráficos salvos em:\n  - {acc_path}\n  - {loss_path}")
+    print(f"📈 Gráficos salvos em: {acc_path} | {loss_path}")
 
 
 # ============================================================
-# 7) PIPELINE PRINCIPAL
+# 9) ARGUMENTOS DE LINHA DE COMANDO
+# ============================================================
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Classificador de lesões de pele — HAM10000"
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        choices=["vgg16", "mobilenetv2", "efficientnetb0"],
+        help="Treina somente o modelo especificado (padrão: vgg16 + mobilenetv2)"
+    )
+    parser.add_argument(
+        "--finetune",
+        action="store_true",
+        help="Ativa fine-tuning após baseline (10 + 10 épocas)"
+    )
+    parser.add_argument(
+        "--reduced-lr",
+        action="store_true",
+        help="Usa LR reduzido (5e-5) e mais épocas (20) no baseline"
+    )
+    parser.add_argument(
+        "--full-test-suite",
+        action="store_true",
+        help="Treina todos os modelos, incluindo EfficientNetB0"
+    )
+    return parser.parse_args()
+
+
+# ============================================================
+# 10) PIPELINE PRINCIPAL
 # ============================================================
 
 def main():
+    args = parse_args()
+    configurar_seed()
     configurar_hardware()
 
     data_dir = "data/processed"
     img_size = (224, 224)
-    batch_size = 32  # Se der erro de memória, reduzir este valor.
-    val_split = 0.2  # 80% treino, 20% validação
+    batch_size = 32
 
-    # Modelos que serão testados (sem fine-tuning inicialmente)
-    modelos = ["vgg16", "mobilenetv2"] # "efficientnetb0"
+    if args.full_test_suite:
+        modelos = ["vgg16", "mobilenetv2", "efficientnetb0"]
+    elif args.model:
+        modelos = [args.model]
+    else:
+        modelos = ["vgg16", "mobilenetv2"]
 
-    epochs_base = 10
-    epochs_finetune = 0  # 👉 recomendação: primeiro 0; depois ativar só para o melhor modelo.
+    if args.reduced_lr:
+        epochs_base = 20
+        lr_base = 5e-5
+    else:
+        epochs_base = 10
+        lr_base = 1e-4
+
+    epochs_finetune = 10 if args.finetune else 0
 
     resultados_gerais = []
 
@@ -489,15 +537,17 @@ def main():
             data_dir=data_dir,
             img_size=img_size,
             batch_size=batch_size,
-            val_split=val_split
         )
+
+        class_weight_dict = calcular_class_weights(train_gen)
 
         model, base_model = build_model(
             model_name=model_name,
             input_shape=img_size + (3,),
             num_classes=train_gen.num_classes,
             train_base=False,
-            hidden_units=256
+            hidden_units=256,
+            dropout_rate=0.5
         )
 
         history_base, history_finetune = train_model(
@@ -507,10 +557,12 @@ def main():
             val_data=val_gen,
             model_name=model_name,
             epochs_base=epochs_base,
-            epochs_finetune=epochs_finetune
+            epochs_finetune=epochs_finetune,
+            lr_base=lr_base,
+            output_dir_models="models",
+            class_weight=class_weight_dict
         )
 
-        # Avaliação + métricas + matriz de confusão
         metrics_dict = evaluate_and_save_metrics(
             model=model,
             val_data=val_gen,
@@ -520,7 +572,6 @@ def main():
 
         resultados_gerais.append(metrics_dict)
 
-        # Gráficos de loss e accuracy
         plot_training_history(
             history_base=history_base,
             history_finetune=history_finetune,
@@ -528,9 +579,8 @@ def main():
             output_dir_results="results"
         )
 
-    # Salva um resumo com todas as arquiteturas testadas
     resumo_path = os.path.join("results", "resumo_modelos.json")
-    with open(resumo_path, "w") as f:
+    with open(resumo_path, "w", encoding="utf-8") as f:
         json.dump(resultados_gerais, f, indent=4, ensure_ascii=False)
 
     print(f"\n✅ Treinamento concluído para todos os modelos.")

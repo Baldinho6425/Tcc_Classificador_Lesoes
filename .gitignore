@@ -1,0 +1,46 @@
+# Dados brutos e processados (muito grandes para o git)
+data/
+Projeto/data/
+
+# Modelos treinados
+models/
+Projeto/models/
+*.h5
+*.keras
+*.pb
+
+# Resultados gerados (gerados automaticamente pelo pipeline)
+results/
+Projeto/results/
+
+# Ambiente virtual Python
+venv/
+env/
+.venv/
+
+# Cache do Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+logs/
+*.log
+
+# Variáveis de ambiente
+.env
