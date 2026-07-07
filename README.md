@@ -314,6 +314,8 @@ Após o treinamento, os seguintes arquivos são criados em `Projeto/results/`:
 
 > Sem GPU, o script detecta automaticamente e executa na CPU. O tempo de treinamento será significativamente maior.
 
+> **Ambiente de desenvolvimento:** este projeto foi desenvolvido e treinado no **Ubuntu LTS**. No Windows 11, foram identificados problemas na detecção da GPU pelo TensorFlow. Caso enfrente o mesmo problema no Windows, recomenda-se utilizar **Ubuntu** ou **WSL2** (Windows Subsystem for Linux 2) com os drivers NVIDIA e CUDA instalados corretamente.
+
 ---
 
 ## Dependências
