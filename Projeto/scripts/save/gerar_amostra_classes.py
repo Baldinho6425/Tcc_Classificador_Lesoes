@@ -2,9 +2,9 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
-# Usa o conjunto de treino para amostrar as classes
-BASE_PATH   = '../../data/processed/train'
-OUTPUT_PATH = '../../results/amostras_classes.png'
+_PROJETO    = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+BASE_PATH   = os.path.join(_PROJETO, 'data', 'processed', 'train')
+OUTPUT_PATH = os.path.join(_PROJETO, 'results', 'amostras_classes.png')
 
 classes = sorted(os.listdir(BASE_PATH))
 

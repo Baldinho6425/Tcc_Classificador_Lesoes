@@ -34,26 +34,27 @@ O dataset **HAM10000** contém 10.015 imagens dermatoscópicas de 7 tipos de les
 ```
 Tcc_Classificador_Lesoes-1/
 ├── Projeto/
-│   ├── menu.py                        # Menu interativo para executar o treinamento
+│   ├── menu.py                          # Menu interativo para executar o treinamento
+│   ├── predict.py                       # [BETA] Inferência em nova imagem com Grad-CAM
 │   ├── src/
 │   │   └── training/
-│   │       └── train.py               # Pipeline principal de treinamento
+│   │       └── train.py                 # Pipeline principal de treinamento
 │   ├── scripts/
-│   │   ├── save/
-│   │   │   ├── organizar_ham10000.py  # Organiza imagens por classe em subpastas
-│   │   │   ├── gerar_amostra_classes.py # Gera grade visual com exemplos por classe
-│   │   │   ├── graficos.py            # Gera gráficos adicionais de análise
-│   │   │   ├── FNFtest.py             # Testes auxiliares
-│   │   │   └── main.py                # Ponto de entrada alternativo
-│   │   └── Vgg16(BackUp).py           # Versão de backup do treinamento VGG16
-│   └── results/
-│       ├── metrics_vgg16.json         # Métricas finais VGG16
-│       ├── metrics_mobilenetv2.json   # Métricas finais MobileNetV2
-│       ├── resumo_modelos.json        # Comparativo geral dos modelos
-│       ├── confusion_matrices/        # Matrizes de confusão normalizadas (%)
-│       └── plots/                     # Curvas de acurácia e loss por modelo
+│   │   └── save/
+│   │       ├── organizar_ham10000.py    # Organiza imagens por classe em subpastas
+│   │       └── gerar_amostra_classes.py # Gera grade visual com exemplos por classe
+│   └── results/                         # Gerado automaticamente pelo pipeline
+│       ├── metrics_{modelo}.json        # Métricas por modelo (vgg16, mobilenetv2...)
+│       ├── resumo_modelos.json          # Comparativo geral entre todos os modelos
+│       ├── confusion_matrices/          # Matrizes de confusão normalizadas (%)
+│       ├── plots/                       # Curvas de acurácia e loss por época
+│       └── gradcam/                     # Visualizações Grad-CAM — predict.py [BETA]
+├── data/                                # Dataset (não versionado — ver .gitignore)
+│   ├── raw/                             # Imagens brutas + HAM10000_metadata.csv
+│   └── processed/                       # Imagens organizadas por classe e split
+├── models/                              # Modelos treinados .h5 (não versionados)
 ├── requirements.txt
-├── setup_project.py                   # Cria estrutura de diretórios automaticamente
+├── setup_project.py                     # Cria estrutura de diretórios automaticamente
 └── README.md
 ```
 
@@ -141,12 +142,18 @@ python Projeto/menu.py
 Opções disponíveis:
 
 ```
+--- Treinamento ---
 1 - Treinar somente MobileNetV2
 2 - Treinar somente VGG16
-3 - Treinar com fine-tuning (10 + 10 épocas)
-4 - Treinar com LR reduzido (20 épocas)
-5 - Rodar pacote completo de testes
-6 - Executar treinamento normal (padrão)
+3 - Treinar somente EfficientNetB0
+4 - Treinar com fine-tuning (10 + 10 épocas)
+5 - Treinar com LR reduzido (20 épocas)
+6 - Rodar pacote completo (VGG16 + MobileNetV2 + EfficientNetB0)
+7 - Executar treinamento padrão (VGG16 + MobileNetV2)
+
+--- Inferência ---
+8 - Classificar nova imagem (+ Grad-CAM)
+
 0 - Sair
 ```
 
@@ -253,6 +260,32 @@ Métricas calculadas no conjunto de validação (20% do dataset), com média pon
 
 ---
 
+## Inferência e Grad-CAM (BETA)
+
+Para classificar uma nova imagem com um modelo já treinado:
+
+```bash
+python Projeto/predict.py \
+    --image caminho/para/lesao.jpg \
+    --model models/mobilenetv2_best_baseline.h5 \
+    --arch mobilenetv2
+```
+
+O script exibe as probabilidades para cada classe e salva automaticamente uma figura com a imagem original e o mapa **Grad-CAM** (Gradient-weighted Class Activation Mapping), que destaca as regiões da imagem que influenciaram a decisão do modelo.
+
+| Argumento | Obrigatório | Descrição |
+|-----------|-------------|-----------|
+| `--image` / `-i` | Sim | Caminho para a imagem de entrada (`.jpg` ou `.png`) |
+| `--model` / `-m` | Sim | Caminho para o modelo treinado (`.h5`) |
+| `--arch` / `-a` | Sim | Arquitetura: `vgg16`, `mobilenetv2` ou `efficientnetb0` |
+| `--output-dir` | Não | Diretório de saída (padrão: `results/gradcam`) |
+
+Também disponível via menu interativo, opção **8**.
+
+> **BETA:** a inferência com Grad-CAM depende de um modelo previamente treinado (`.h5`). Execute o treinamento antes de usar esta funcionalidade.
+
+---
+
 ## Saídas Geradas
 
 Após o treinamento, os seguintes arquivos são criados em `Projeto/results/`:
@@ -264,6 +297,7 @@ Após o treinamento, os seguintes arquivos são criados em `Projeto/results/`:
 | `confusion_matrices/cm_{modelo}_percent.png` | Matriz de confusão normalizada (%) |
 | `plots/accuracy_{modelo}.png` | Curva de acurácia por época |
 | `plots/loss_{modelo}.png` | Curva de loss por época |
+| `gradcam/gradcam_{imagem}_{modelo}.png` | Visualização Grad-CAM da inferência |
 | `amostras_classes.png` | Grade visual com exemplos de cada classe |
 
 ---
@@ -298,11 +332,10 @@ jupyter
 
 ## Melhorias Possíveis
 
-- Aplicar técnicas de **balanceamento de classes** (oversampling com SMOTE ou class weights) para melhorar o desempenho nas classes minoritárias
-- Treinar **EfficientNetB0** (já implementado no `train.py`, comentado na pipeline principal)
-- Adicionar **Grad-CAM** para visualizar quais regiões da imagem influenciam a predição
-- Desenvolver uma **interface web** para upload e classificação de novas imagens (ex: Flask ou Streamlit)
-- Avaliar o impacto de diferentes estratégias de **fine-tuning parcial** (congelar apenas as primeiras N camadas)
+- Aplicar **oversampling sintético** (SMOTE ou geração via GANs) para ampliar as classes minoritárias além do balanceamento por pesos
+- Desenvolver uma **interface web** (Streamlit ou Flask) para upload de imagens e visualização do Grad-CAM em tempo real
+- Avaliar o impacto de diferentes estratégias de **fine-tuning parcial** (congelar apenas as primeiras N camadas do backbone)
+- Experimentar arquiteturas mais recentes como **EfficientNetV2** ou **ConvNeXt**
 
 ---
 

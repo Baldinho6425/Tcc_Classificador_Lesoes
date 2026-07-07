@@ -3,10 +3,10 @@ import shutil
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
-# Caminhos (relativos ao diretório Projeto/scripts/save/)
-CSV_PATH = '../../data/raw/HAM10000_metadata.csv'
-IMG_DIR  = '../../data/raw/Images'
-DEST_DIR = '../../data/processed'
+_PROJETO = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
+CSV_PATH = os.path.join(_PROJETO, 'data', 'raw', 'HAM10000_metadata.csv')
+IMG_DIR  = os.path.join(_PROJETO, 'data', 'raw', 'Images')
+DEST_DIR = os.path.join(_PROJETO, 'data', 'processed')
 
 SEED = 42
 

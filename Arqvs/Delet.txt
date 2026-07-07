@@ -1,5 +1,0 @@
-=======================================================================================
-python main.py - Inicia o prototipo
-python graficos.py - Gerador dos Graficos
-python gerar_amostra_classes.py - Gera uma amostra de como esta organizado
-python organizar_ham10000.py - organiza as imgs e classes conforme a metadata
