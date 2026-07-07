@@ -312,6 +312,15 @@ Após o treinamento, os seguintes arquivos são criados em `Projeto/results/`:
 | GPU | — | NVIDIA com CUDA (Mixed Precision habilitado automaticamente) |
 | Armazenamento | 5 GB | 10 GB |
 
+### Hardware utilizado nos experimentos
+
+| Componente | Especificações |
+|------------|---------------|
+| CPU | Intel Core i7-10700F |
+| Memória RAM | 32 GB DDR4 |
+| GPU | NVIDIA GeForce RTX 3050 Pegasus |
+| VRAM | 8 GB GDDR6 |
+
 > Sem GPU, o script detecta automaticamente e executa na CPU. O tempo de treinamento será significativamente maior.
 
 > **Ambiente de desenvolvimento:** este projeto foi desenvolvido e treinado no **Ubuntu LTS**. No Windows 11, foram identificados problemas na detecção da GPU pelo TensorFlow. Caso enfrente o mesmo problema no Windows, recomenda-se utilizar **Ubuntu** ou **WSL2** (Windows Subsystem for Linux 2) com os drivers NVIDIA e CUDA instalados corretamente.
@@ -323,6 +332,7 @@ Após o treinamento, os seguintes arquivos são criados em `Projeto/results/`:
 ```
 tensorflow>=2.17.0
 matplotlib
+seaborn
 numpy
 pandas
 scikit-learn
