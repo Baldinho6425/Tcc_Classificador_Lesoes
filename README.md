@@ -49,6 +49,8 @@ Tcc_Classificador_Lesoes-1/
 │       ├── confusion_matrices/          # Matrizes de confusão normalizadas (%)
 │       ├── plots/                       # Curvas de acurácia e loss por época
 │       └── gradcam/                     # Visualizações Grad-CAM — predict.py [BETA]
+├── docs/
+│   └── Artigo_TCC.pdf                   # Artigo científico completo
 ├── data/                                # Dataset (não versionado — ver .gitignore)
 │   ├── raw/                             # Imagens brutas + HAM10000_metadata.csv
 │   └── processed/                       # Imagens organizadas por classe e split
@@ -348,6 +350,12 @@ jupyter
 - Desenvolver uma **interface web** (Streamlit ou Flask) para upload de imagens e visualização do Grad-CAM em tempo real
 - Avaliar o impacto de diferentes estratégias de **fine-tuning parcial** (congelar apenas as primeiras N camadas do backbone)
 - Experimentar arquiteturas mais recentes como **EfficientNetV2** ou **ConvNeXt**
+
+---
+
+## Artigo
+
+O artigo completo está disponível em [`docs/Artigo_TCC.pdf`](docs/Artigo_TCC.pdf).
 
 ---
 
